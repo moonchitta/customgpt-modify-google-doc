@@ -2,17 +2,31 @@ from flask import Flask, request, jsonify
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
-import os
 import json
+from flask import Flask, request, jsonify
+from slack_sdk import WebClient
+from slack_sdk.errors import SlackApiError
+from dotenv import load_dotenv
+import os
 
 os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
 
+# Load environment variables from .env file
+load_dotenv()
+
 app = Flask(__name__)
+
+# Slack Bot Token from .env file
+SLACK_BOT_TOKEN = os.getenv("SLACK_BOT_TOKEN")
+if not SLACK_BOT_TOKEN:
+    raise ValueError("SLACK_BOT_TOKEN is not set in the .env file")
+
+client = WebClient(token=SLACK_BOT_TOKEN)
 
 # File paths and scopes
 CLIENT_SECRET_FILE = 'client_secret.json'  # Path to your client_secret.json file
 TOKEN_FILE = 'token.json'
-SCOPES = ['https://www.googleapis.com/auth/documents', 'https://www.googleapis.com/auth/drive.readonly']
+SCOPES = [ 'https://www.googleapis.com/auth/drive', 'https://www.googleapis.com/auth/documents', 'https://www.googleapis.com/auth/drive.readonly']
 
 @app.route('/privacy', methods=['GET'])
 def privacy():
@@ -55,18 +69,30 @@ def privacy():
     """
     return privacy_html
 
+@app.route('/list_channels', methods=['GET'])
+def list_channels():
+    """
+    List all Slack channels.
+    """
+    try:
+        response = client.conversations_list(types="public_channel,private_channel")
+        channels = response.get("channels", [])
+        return jsonify({"ok": True, "channels": [{"id": ch["id"], "name": ch["name"]} for ch in channels]})
+    except SlackApiError as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
 # Authentication flow (unchanged)
 @app.route('/startAuth', methods=['GET'])
 def start_auth():
     flow = InstalledAppFlow.from_client_secrets_file(CLIENT_SECRET_FILE, SCOPES)
-    flow.redirect_uri = 'https://df92-2407-d000-1a-e3-d573-b85e-9f94-f098.ngrok-free.app/handleAuth'
+    flow.redirect_uri = 'https://8664-2407-d000-1a-4cf4-bdd9-df33-df5c-a993.ngrok-free.app/handleAuth'
     auth_url, _ = flow.authorization_url(prompt='consent')
     return jsonify({'auth_url': auth_url}), 200
 
 @app.route('/handleAuth', methods=['GET'])
 def handle_auth():
     flow = InstalledAppFlow.from_client_secrets_file(CLIENT_SECRET_FILE, SCOPES)
-    flow.redirect_uri = 'https://df92-2407-d000-1a-e3-d573-b85e-9f94-f098.ngrok-free.app/handleAuth'
+    flow.redirect_uri = 'https://8664-2407-d000-1a-4cf4-bdd9-df33-df5c-a993.ngrok-free.app/handleAuth'
     authorization_response = request.url
     flow.fetch_token(authorization_response=authorization_response)
 
@@ -171,6 +197,63 @@ def update_doc():
         return jsonify({'message': f'Content updated successfully in document: {doc_id}'})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+@app.route('/shareFileOnSlack', methods=['POST'])
+def share_file_on_slack():
+    """
+    Share a Google Drive document on Slack by changing its permission to public.
+    JSON Body: { "channel_id": "C12345678", "document_id": "DRIVE_DOCUMENT_ID", "comment": "Optional comment" }
+    """
+    data = request.json
+    channel_id = data.get("channel_id")
+    document_id = data.get("document_id")
+    comment = data.get("comment", "")
+
+    if not channel_id or not document_id:
+        return jsonify({"ok": False, "error": "channel_id and document_id are required"}), 400
+
+    try:
+        # Authenticate and build the Google Drive service
+        if os.path.exists(TOKEN_FILE):
+            with open(TOKEN_FILE, 'r') as token_file:
+                creds_json = json.load(token_file)
+                creds = Credentials.from_authorized_user_info(creds_json)
+        else:
+            return jsonify({'ok': False, 'error': 'User not authenticated. Please authenticate at /startAuth'}), 401
+
+        drive_service = build('drive', 'v3', credentials=creds)
+
+        # Change the file permission to public
+        permission = {
+            'type': 'anyone',
+            'role': 'reader'
+        }
+        drive_service.permissions().create(
+            fileId=document_id,
+            body=permission,
+            fields='id'
+        ).execute()
+
+        # Get the public URL of the document
+        public_url = f"https://drive.google.com/file/d/{document_id}/view"
+
+        # Prepare the message for Slack
+        message = f"{comment}\n{public_url}" if comment else public_url
+
+        # Post the public URL to the specified Slack channel
+        response = client.chat_postMessage(channel=channel_id, text=message)
+
+        return jsonify({
+            "ok": True,
+            "message_id": response.get("ts"),
+            "public_url": public_url,
+            "message": "Google Drive file link shared successfully"
+        })
+    except SlackApiError as slack_error:
+        return jsonify({"ok": False, "error": f"Slack error: {str(slack_error)}"}), 500
+    except Exception as e:
+        return jsonify({"ok": False, "error": f"Google Drive error: {str(e)}"}), 500
+
 
 if __name__ == '__main__':
     app.run(debug=True)
