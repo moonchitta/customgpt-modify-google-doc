@@ -1,22 +1,57 @@
 openapi: 3.1.0
 info:
-  title: Custom Google Docs API
+  title: Google Drive and Slack Integration API
   version: 1.0.0
-  description: API to authenticate, list Google Docs-compatible files, and read/update Google Docs using Flask.
-
+  description: API to integrate Google Drive functionality and Slack messaging.
 servers:
-  - url: https://df92-2407-d000-1a-e3-d573-b85e-9f94-f098.ngrok-free.app/
+  - url: https://8664-2407-d000-1a-4cf4-bdd9-df33-df5c-a993.ngrok-free.app
     description: Development server
-
 paths:
+  /privacy:
+    get:
+      summary: Returns the privacy policy
+      operationId: getPrivacyPolicy
+      responses:
+        200:
+          description: Privacy policy returned successfully.
+          content:
+            text/html:
+              schema:
+                type: string
+
+  /list_channels:
+    get:
+      summary: List all Slack channels
+      operationId: listSlackChannels
+      responses:
+        200:
+          description: List of channels retrieved successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  channels:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        name:
+                          type: string
+        500:
+          description: Error retrieving channels.
+
   /startAuth:
     get:
-      operationId: startAuth
-      summary: Initiates Google OAuth flow
-      description: Redirects the user to authenticate with Google.
+      summary: Start Google Drive authentication
+      operationId: startGoogleDriveAuth
       responses:
-        "200":
-          description: Authorization URL provided
+        200:
+          description: Authentication URL provided successfully.
           content:
             application/json:
               schema:
@@ -24,16 +59,14 @@ paths:
                 properties:
                   auth_url:
                     type: string
-                    description: URL for user authentication
 
   /handleAuth:
     get:
-      operationId: handleAuth
-      summary: Handles Google OAuth redirect
-      description: Processes the OAuth redirect and saves tokens.
+      summary: Handle Google Drive authentication response
+      operationId: handleGoogleDriveAuth
       responses:
-        "200":
-          description: Authentication successful message
+        200:
+          description: Authentication successful.
           content:
             application/json:
               schema:
@@ -41,16 +74,14 @@ paths:
                 properties:
                   message:
                     type: string
-                    example: Authentication successful!
 
   /listFiles:
     get:
-      operationId: listFiles
       summary: List Google Docs-compatible files
-      description: Fetches a list of files available in the user's Google Drive that are compatible with Google Docs.
+      operationId: listGoogleDriveFiles
       responses:
-        "200":
-          description: List of files
+        200:
+          description: List of Google Docs-compatible files retrieved successfully.
           content:
             application/json:
               schema:
@@ -63,33 +94,27 @@ paths:
                       properties:
                         id:
                           type: string
-                          description: File ID
-                          example: "1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms"
                         name:
                           type: string
-                          description: File name
-                          example: "Sample Document"
                         mimeType:
                           type: string
-                          description: MIME type of the file
-                          example: "application/vnd.google-apps.document"
+        500:
+          description: Error retrieving files.
 
   /readDoc:
     get:
-      operationId: readDoc
       summary: Read content from a Google Docs file
-      description: Retrieves and returns the content of a Google Docs file specified by its `document_id`.
+      operationId: readGoogleDoc
       parameters:
         - name: document_id
           in: query
           required: true
-          description: The ID of the Google Docs file to read.
           schema:
             type: string
-            example: "1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms"
+          description: ID of the Google Docs file.
       responses:
-        "200":
-          description: Content of the document
+        200:
+          description: File content retrieved successfully.
           content:
             application/json:
               schema:
@@ -97,20 +122,16 @@ paths:
                 properties:
                   content:
                     type: string
-                    description: Text content of the document
-                    example: "This is the content of the document."
-        "400":
-          description: Missing or invalid `document_id`
-        "500":
-          description: Internal server error
+        400:
+          description: Document ID is missing or invalid.
+        500:
+          description: Error reading the document.
 
   /updateDoc:
     post:
-      operationId: updateDoc
-      summary: Update content in Google Docs
-      description: Adds new content to a specific Google Docs file.
+      summary: Update a Google Docs file
+      operationId: updateGoogleDoc
       requestBody:
-        description: Details of the document and content to be added
         required: true
         content:
           application/json:
@@ -119,28 +140,93 @@ paths:
               properties:
                 document_id:
                   type: string
-                  description: The ID of the Google Docs file
-                  example: "1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms"
                 content:
                   type: string
-                  description: Text content to add
-                  example: "New content for the document."
                 location_index:
                   type: integer
-                  description: Index in the document to insert content
-                  example: 1
+                  default: 1
       responses:
-        "200":
-          description: Update successful message
+        200:
+          description: Document updated successfully.
+        400:
+          description: Missing or invalid input data.
+        500:
+          description: Error updating the document.
+
+  /shareFileOnSlack:
+    post:
+      summary: Share a Google Drive document on Slack
+      operationId: shareDriveFileOnSlack
+      requestBody:
+        description: Information required to share a Google Drive document on Slack
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                channel_id:
+                  type: string
+                  description: The ID of the Slack channel to share the file link in
+                  example: C12345678
+                document_id:
+                  type: string
+                  description: The ID of the Google Drive document
+                  example: 1aBcDeFgHiJkLmNoPqRsTuVwXyZ
+                comment:
+                  type: string
+                  description: Optional comment to include with the file link
+                  example: "Check out this document"
+      responses:
+        200:
+          description: Google Drive file link shared successfully on Slack
           content:
             application/json:
               schema:
                 type: object
                 properties:
+                  ok:
+                    type: boolean
+                    example: true
+                  message_id:
+                    type: string
+                    description: The Slack message timestamp
+                    example: "1627382910.000200"
+                  public_url:
+                    type: string
+                    description: The public URL of the Google Drive document
+                    example: https://drive.google.com/file/d/1aBcDeFgHiJkLmNoPqRsTuVwXyZ/view
                   message:
                     type: string
-                    example: "Content updated successfully in document: {document_id}"
-        "400":
-          description: Missing parameters
-        "500":
-          description: Internal server error
+                    description: A success message
+                    example: "Google Drive file link shared successfully"
+        400:
+          description: Missing or invalid input data
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                    description: Error message
+                    example: "channel_id and document_id are required"
+        500:
+          description: Error encountered while processing the request
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                    description: Error message
+                    example: "Slack error: some error message"
+
+
