@@ -1,10 +1,10 @@
 openapi: 3.1.0
 info:
-  title: Google Drive and Slack Integration API
+  title: Google Drive, Slack Integration API and ElevenLabs
   version: 1.0.0
-  description: API to integrate Google Drive functionality and Slack messaging.
+  description: API to integrate Google Drive functionality, Slack messaging and ElevanLabs to generate Speech based on the Text
 servers:
-  - url: https://8664-2407-d000-1a-4cf4-bdd9-df33-df5c-a993.ngrok-free.app
+  - url: https://f859-2407-d000-1a-4cf4-f9cf-5b9d-8f18-22f0.ngrok-free.app
     description: Development server
 paths:
   /privacy:
@@ -12,7 +12,7 @@ paths:
       summary: Returns the privacy policy
       operationId: getPrivacyPolicy
       responses:
-        200:
+        '200':
           description: Privacy policy returned successfully.
           content:
             text/html:
@@ -24,7 +24,7 @@ paths:
       summary: List all Slack channels
       operationId: listSlackChannels
       responses:
-        200:
+        '200':
           description: List of channels retrieved successfully.
           content:
             application/json:
@@ -42,7 +42,7 @@ paths:
                           type: string
                         name:
                           type: string
-        500:
+        '500':
           description: Error retrieving channels.
 
   /startAuth:
@@ -50,7 +50,7 @@ paths:
       summary: Start Google Drive authentication
       operationId: startGoogleDriveAuth
       responses:
-        200:
+        '200':
           description: Authentication URL provided successfully.
           content:
             application/json:
@@ -65,7 +65,7 @@ paths:
       summary: Handle Google Drive authentication response
       operationId: handleGoogleDriveAuth
       responses:
-        200:
+        '200':
           description: Authentication successful.
           content:
             application/json:
@@ -80,7 +80,7 @@ paths:
       summary: List Google Docs-compatible files
       operationId: listGoogleDriveFiles
       responses:
-        200:
+        '200':
           description: List of Google Docs-compatible files retrieved successfully.
           content:
             application/json:
@@ -98,7 +98,7 @@ paths:
                           type: string
                         mimeType:
                           type: string
-        500:
+        '500':
           description: Error retrieving files.
 
   /readDoc:
@@ -113,7 +113,7 @@ paths:
             type: string
           description: ID of the Google Docs file.
       responses:
-        200:
+        '200':
           description: File content retrieved successfully.
           content:
             application/json:
@@ -122,9 +122,9 @@ paths:
                 properties:
                   content:
                     type: string
-        400:
+        '400':
           description: Document ID is missing or invalid.
-        500:
+        '500':
           description: Error reading the document.
 
   /updateDoc:
@@ -146,11 +146,11 @@ paths:
                   type: integer
                   default: 1
       responses:
-        200:
+        '200':
           description: Document updated successfully.
-        400:
+        '400':
           description: Missing or invalid input data.
-        500:
+        '500':
           description: Error updating the document.
 
   /shareFileOnSlack:
@@ -178,7 +178,7 @@ paths:
                   description: Optional comment to include with the file link
                   example: "Check out this document"
       responses:
-        200:
+        '200':
           description: Google Drive file link shared successfully on Slack
           content:
             application/json:
@@ -200,7 +200,7 @@ paths:
                     type: string
                     description: A success message
                     example: "Google Drive file link shared successfully"
-        400:
+        '400':
           description: Missing or invalid input data
           content:
             application/json:
@@ -214,7 +214,7 @@ paths:
                     type: string
                     description: Error message
                     example: "channel_id and document_id are required"
-        500:
+        '500':
           description: Error encountered while processing the request
           content:
             application/json:
@@ -228,5 +228,90 @@ paths:
                     type: string
                     description: Error message
                     example: "Slack error: some error message"
+  /generate-audio:
+    post:
+      operationId: generateAudioFromText
+      summary: Generate Audio from Text
+      description: Accepts a text prompt, sends it to ElevenLabs API, and returns the generated audio file URL.
+      requestBody:
+        required: true
+        description: JSON payload containing the text to be converted into speech.
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenerateAudioRequest'
+      responses:
+        '200':
+          description: Audio file generated successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Audio file generated successfully."
+                  file_url:
+                    type: string
+                    format: uri
+                    example: "http://127.0.0.1:5000/audio/output.mp3"
+        '400':
+          description: Bad request. Text input is missing.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error or API failure.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /audio/{filename}:
+    get:
+      operationId: serveAudioFile
+      summary: Retrieve an audio file
+      description: Serves an audio file by its filename from the audio_outputs folder.
+      parameters:
+        - name: filename
+          in: path
+          required: true
+          description: Name of the audio file to retrieve.
+          schema:
+            type: string
+            example: "output.mp3"
+      responses:
+        '200':
+          description: Audio file retrieved successfully.
+          content:
+            audio/mpeg:
+              schema:
+                type: string
+                format: binary
+        '404':
+          description: File not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 
-
+components:
+  schemas:
+    GenerateAudioRequest:
+      type: object
+      properties:
+        text:
+          type: string
+          description: The text input to be converted into speech.
+          example: "Hello, this is a test audio."
+      required:
+        - text
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+          example: "No text provided."
+        details:
+          type: string
+          example: "Failed to process the request."

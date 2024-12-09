@@ -3,7 +3,8 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 import json
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_from_directory
+import requests
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 from dotenv import load_dotenv
@@ -27,6 +28,17 @@ client = WebClient(token=SLACK_BOT_TOKEN)
 CLIENT_SECRET_FILE = 'client_secret.json'  # Path to your client_secret.json file
 TOKEN_FILE = 'token.json'
 SCOPES = [ 'https://www.googleapis.com/auth/drive', 'https://www.googleapis.com/auth/documents', 'https://www.googleapis.com/auth/drive.readonly']
+
+# ElevenLabs API configuration
+ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY")
+VOICE_ID = os.getenv("ELEVENLABS_VOICE_ID", "pNInz6obpgDQGcFmaJgB")  # Default voice ID
+
+# Elevenlabs base url
+ELEVENLABS_URL = "https://api.elevenlabs.io/v1/text-to-speech/"
+
+# Folder to save generated audio files
+OUTPUT_FOLDER = "audio_outputs"
+os.makedirs(OUTPUT_FOLDER, exist_ok=True)  # Ensure folder exists
 
 @app.route('/privacy', methods=['GET'])
 def privacy():
@@ -85,14 +97,14 @@ def list_channels():
 @app.route('/startAuth', methods=['GET'])
 def start_auth():
     flow = InstalledAppFlow.from_client_secrets_file(CLIENT_SECRET_FILE, SCOPES)
-    flow.redirect_uri = 'https://8664-2407-d000-1a-4cf4-bdd9-df33-df5c-a993.ngrok-free.app/handleAuth'
+    flow.redirect_uri = 'https://f859-2407-d000-1a-4cf4-f9cf-5b9d-8f18-22f0.ngrok-free.app/handleAuth'
     auth_url, _ = flow.authorization_url(prompt='consent')
     return jsonify({'auth_url': auth_url}), 200
 
 @app.route('/handleAuth', methods=['GET'])
 def handle_auth():
     flow = InstalledAppFlow.from_client_secrets_file(CLIENT_SECRET_FILE, SCOPES)
-    flow.redirect_uri = 'https://8664-2407-d000-1a-4cf4-bdd9-df33-df5c-a993.ngrok-free.app/handleAuth'
+    flow.redirect_uri = 'https://f859-2407-d000-1a-4cf4-f9cf-5b9d-8f18-22f0.ngrok-free.app/handleAuth'
     authorization_response = request.url
     flow.fetch_token(authorization_response=authorization_response)
 
@@ -254,6 +266,56 @@ def share_file_on_slack():
     except Exception as e:
         return jsonify({"ok": False, "error": f"Google Drive error: {str(e)}"}), 500
 
+@app.route('/generate-audio', methods=['POST'])
+def generate_audio():
+    try:
+        # Get text input from the request
+        data = request.json
+        text = data.get("text")
+
+        if not text:
+            return jsonify({"error": "No text provided"}), 400
+
+        # Call ElevenLabs API
+        headers = {
+            "Content-Type": "application/json",
+            "xi-api-key": ELEVENLABS_API_KEY
+        }
+
+        payload = {
+            "text": text,
+            "voice_settings": {
+                "stability": 0.5,
+                "similarity_boost": 0.5
+            }
+        }
+
+        response = requests.post(f"{ELEVENLABS_URL}{VOICE_ID}", json=payload, headers=headers)
+
+        if response.status_code != 200:
+            return jsonify({"error": "Failed to generate audio", "details": response.text}), response.status_code
+
+        # Save audio content to a local folder
+        output_folder = "audio_outputs"
+        os.makedirs(output_folder, exist_ok=True)  # Create folder if it doesn't exist
+
+        # Save audio to OUTPUT_FOLDER
+        audio_file_path = os.path.join(OUTPUT_FOLDER, "output.mp3")
+        with open(audio_file_path, "wb") as audio_file:
+            audio_file.write(response.content)
+
+        # Return file URL
+        return jsonify({
+            "message": "Audio file generated successfully.",
+            "file_url": f"{request.host_url}/audio/{os.path.basename(audio_file_path)}"
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+# Serve static files from the audio_outputs folder
+@app.route('/audio/<filename>')
+def serve_audio(filename):
+    return send_from_directory(OUTPUT_FOLDER, filename)
 
 if __name__ == '__main__':
     app.run(debug=True)

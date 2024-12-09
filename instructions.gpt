@@ -112,3 +112,37 @@ To share a Google Drive file in a Slack channel:
    ```
 4. If successful, the response will include a `public_url` to the shared Google Drive file and a `message_id` indicating the Slack message timestamp.
 5. Check for any errors in the response and handle them appropriately.
+6. Generate Audio from Text
+Description: Send the extracted text content (e.g., from update_doc or a Google Doc) to the /generate-audio endpoint to convert the text to speech and obtain the MP3 audio URL.
+Required Parameters:
+text: (string) The text content to convert into audio.
+Example Workflow:
+Retrieve the Text: Use the existing update_doc or list_files action to read or update a Google Doc.
+
+Send to /generate-audio: Once text is obtained, send it to the /generate-audio endpoint.
+
+Request Payload:
+
+{
+  "text": "Hello, this is the text content from the Google Doc."
+}
+Receive the MP3 URL: The API will return the audio file's public URL.
+
+{
+  "message": "Audio file generated successfully.",
+  "file_url": "http://localhost:5000/audio/output.mp3"
+}
+Play the Audio: The user can access the URL directly to play the audio.
+
+Example User Interaction:
+User Input: "Convert the text 'Hello World!' from my Google Doc into an audio file and play it."
+
+GPT Response:
+
+{
+  "action": "generate_audio",
+  "parameters": {
+    "text": "Hello World!"
+  }
+}
+Message: "Here is the link to the generated audio file: http://localhost:5000/audio/output.mp3. Click the link to play the audio."
