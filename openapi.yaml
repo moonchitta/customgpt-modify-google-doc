@@ -228,6 +228,77 @@ paths:
                     type: string
                     description: Error message
                     example: "Slack error: some error message"
+  /shareFileAsAttachmentOnSlack:
+    post:
+      summary: Upload a Google Drive file as an attachment to Slack
+      operationId: uploadDriveFileAsSlackAttachment
+      requestBody:
+        description: Information required to upload a Google Drive file as an attachment to Slack
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                channel_id:
+                  type: string
+                  description: The ID of the Slack channel to upload the file to
+                  example: C12345678
+                document_id:
+                  type: string
+                  description: The ID of the Google Drive document
+                  example: 1aBcDeFgHiJkLmNoPqRsTuVwXyZ
+                comment:
+                  type: string
+                  description: Optional comment to include with the file
+                  example: "Here is the file as requested!"
+      responses:
+        '200':
+          description: Google Drive file uploaded successfully to Slack as an attachment
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                    example: true
+                  file_id:
+                    type: string
+                    description: The Slack file ID
+                    example: "F1234567890"
+                  message:
+                    type: string
+                    description: Success message
+                    example: "File uploaded to Slack channel successfully."
+        '400':
+          description: Missing or invalid input data
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                    description: Error message
+                    example: "channel_id and document_id are required."
+        '500':
+          description: Error encountered while processing the request
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                    description: Error message
+                    example: "Google Drive error: some error message"
   /generate-audio:
     post:
       operationId: generateAudioFromText

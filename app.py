@@ -1,3 +1,4 @@
+import googleapiclient
 from flask import Flask, request, jsonify
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.oauth2.credentials import Credentials
@@ -260,6 +261,64 @@ def share_file_on_slack():
             "message_id": response.get("ts"),
             "public_url": public_url,
             "message": "Google Drive file link shared successfully"
+        })
+    except SlackApiError as slack_error:
+        return jsonify({"ok": False, "error": f"Slack error: {str(slack_error)}"}), 500
+    except Exception as e:
+        return jsonify({"ok": False, "error": f"Google Drive error: {str(e)}"}), 500
+
+@app.route('/shareFileAsAttachmentOnSlack', methods=['POST'])
+def share_file_as_attachment_on_slack():
+    """
+    Downloads a Google Drive file in its original format and uploads it as an attachment to a Slack channel.
+    JSON Body: { "channel_id": "C12345678", "document_id": "DRIVE_DOCUMENT_ID", "comment": "Optional comment" }
+    """
+    data = request.json
+    channel_id = data.get("channel_id")
+    document_id = data.get("document_id")
+    comment = data.get("comment", "")
+
+    if not channel_id or not document_id:
+        return jsonify({"ok": False, "error": "channel_id and document_id are required"}), 400
+
+    try:
+        # Authenticate and build the Google Drive service
+        if os.path.exists(TOKEN_FILE):
+            with open(TOKEN_FILE, 'r') as token_file:
+                creds_json = json.load(token_file)
+                creds = Credentials.from_authorized_user_info(creds_json)
+        else:
+            return jsonify({'ok': False, 'error': 'User not authenticated. Please authenticate at /startAuth'}), 401
+
+        drive_service = build('drive', 'v3', credentials=creds)
+
+        # Get file metadata (to fetch the file name)
+        file_metadata = drive_service.files().get(fileId=document_id, fields="name").execute()
+        file_name = file_metadata.get("name")
+
+        # Download the file in its original format
+        request_download = drive_service.files().get_media(fileId=document_id)
+        file_path = f"/tmp/{file_name}"  # Temporary storage for the file
+
+        with open(file_path, "wb") as file:
+            downloader = googleapiclient.http.MediaIoBaseDownload(file, request_download)
+            done = False
+            while not done:
+                status, done = downloader.next_chunk()
+
+        # Upload the file to Slack as an attachment
+        with open(file_path, "rb") as file:
+            response = client.files_upload(
+                channels=channel_id,
+                file=file,
+                filename=file_name,
+                initial_comment=comment
+            )
+
+        return jsonify({
+            "ok": True,
+            "file_id": response.get("file", {}).get("id"),
+            "message": "File uploaded to Slack channel successfully."
         })
     except SlackApiError as slack_error:
         return jsonify({"ok": False, "error": f"Slack error: {str(slack_error)}"}), 500
