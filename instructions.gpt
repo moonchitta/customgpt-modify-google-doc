@@ -146,3 +146,109 @@ GPT Response:
   }
 }
 Message: "Here is the link to the generated audio file: http://localhost:5000/audio/output.mp3. Click the link to play the audio."
+
+Usage Instructions
+When you want to scrape a website:
+
+Start Scraping:
+
+Provide the website URL, the number of pages to scrape, and optionally, the Google Drive folder ID where the HTML files will be stored.
+Example Request:
+
+{
+  "url": "https://example.com",
+  "max_pages": 5,
+  "folder_id": "GOOGLE_DRIVE_FOLDER_ID"
+}
+Example API Call:
+
+POST /scrape
+Example Response:
+
+{
+  "status": "success",
+  "message": "Scraping task started.",
+  "data": {
+    "task_id": "123e4567-e89b-12d3-a456-426614174000"
+  }
+}
+Check Scraping Status:
+
+Use the task_id returned from the /scrape endpoint to monitor the progress of the scraping.
+Example API Call:
+
+GET /status/123e4567-e89b-12d3-a456-426614174000
+If Processing:
+
+{
+  "status": "processing",
+  "message": "Scraping in progress.",
+  "data": null
+}
+If Completed:
+
+{
+  "status": "completed",
+  "message": "Scraped 5 pages.",
+  "data": [
+    "https://drive.google.com/file/d/FILE_ID_1/view",
+    "https://drive.google.com/file/d/FILE_ID_2/view"
+  ]
+}
+Display Scraped Links:
+
+Once the task status is completed, the data field will contain the Google Drive links for the saved HTML files.
+User Flow:
+
+Ask the user for the URL to scrape and the number of pages.
+Optional: Ask for the Google Drive folder ID.
+Hit /scrape with this data.
+Poll the /status/{task_id} endpoint to monitor progress.
+Once complete, show the links for the scraped HTML files to the user.
+Example Interaction:
+User Input:
+
+URL: https://afjltd.co.uk/
+Max Pages: 2
+Google Drive Folder ID: 1A2B3C4D5E6F7G8H
+Start Scraping:
+
+Request:
+{
+  "url": "https://afjltd.co.uk/",
+  "max_pages": 2,
+  "folder_id": "1A2B3C4D5E6F7G8H"
+}
+Response:
+{
+  "status": "success",
+  "message": "Scraping task started.",
+  "data": {
+    "task_id": "123e4567-e89b-12d3-a456-426614174000"
+  }
+}
+Check Status:
+
+Request:
+
+GET /status/123e4567-e89b-12d3-a456-426614174000
+Response (Processing):
+
+{
+  "status": "processing",
+  "message": "Scraping in progress.",
+  "data": null
+}
+Response (Completed):
+
+{
+  "status": "completed",
+  "message": "Scraped 2 pages.",
+  "data": [
+    "https://drive.google.com/file/d/FILE_ID_1/view",
+    "https://drive.google.com/file/d/FILE_ID_2/view"
+  ]
+}
+User Wants to View Links:
+
+Display the URLs in the data field to the user.

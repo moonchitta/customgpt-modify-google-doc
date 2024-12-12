@@ -1,15 +1,30 @@
-import googleapiclient
-from flask import Flask, request, jsonify
+import os
+import time
+import uuid
+import threading
+import json
+
+import requests
+from flask import Flask, request, jsonify, send_from_directory
+from urllib.parse import urlparse
+
+# Google Drive imports
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
-import json
-from flask import Flask, request, jsonify, send_from_directory
-import requests
+import googleapiclient.http
+
+# Slack imports
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 from dotenv import load_dotenv
-import os
+
+# Selenium imports
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.common.by import By
+from selenium.webdriver.chrome.options import Options
+from webdriver_manager.chrome import ChromeDriverManager
 
 os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
 
@@ -40,6 +55,19 @@ ELEVENLABS_URL = "https://api.elevenlabs.io/v1/text-to-speech/"
 # Folder to save generated audio files
 OUTPUT_FOLDER = "audio_outputs"
 os.makedirs(OUTPUT_FOLDER, exist_ok=True)  # Ensure folder exists
+
+# Folder to store temp files
+OUTPUT_DIR = "scraped_pages"
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+# Global variables for scraping
+tasks = {}
+driver = None
+selenium_initialized = False
+selenium_error_message = None
+
+# Google Drive Service
+drive_service = None
 
 @app.route('/privacy', methods=['GET'])
 def privacy():
@@ -98,14 +126,14 @@ def list_channels():
 @app.route('/startAuth', methods=['GET'])
 def start_auth():
     flow = InstalledAppFlow.from_client_secrets_file(CLIENT_SECRET_FILE, SCOPES)
-    flow.redirect_uri = 'https://f859-2407-d000-1a-4cf4-f9cf-5b9d-8f18-22f0.ngrok-free.app/handleAuth'
+    flow.redirect_uri = 'https://1d56-2407-d000-1a-8ad4-ec04-df40-2e53-3a13.ngrok-free.app//handleAuth'
     auth_url, _ = flow.authorization_url(prompt='consent')
     return jsonify({'auth_url': auth_url}), 200
 
 @app.route('/handleAuth', methods=['GET'])
 def handle_auth():
     flow = InstalledAppFlow.from_client_secrets_file(CLIENT_SECRET_FILE, SCOPES)
-    flow.redirect_uri = 'https://f859-2407-d000-1a-4cf4-f9cf-5b9d-8f18-22f0.ngrok-free.app/handleAuth'
+    flow.redirect_uri = 'https://1d56-2407-d000-1a-8ad4-ec04-df40-2e53-3a13.ngrok-free.app//handleAuth'
     authorization_response = request.url
     flow.fetch_token(authorization_response=authorization_response)
 
@@ -210,6 +238,189 @@ def update_doc():
         return jsonify({'message': f'Content updated successfully in document: {doc_id}'})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+def initialize_google_drive():
+    """Initialize Google Drive API."""
+    global drive_service
+    try:
+        if os.path.exists(TOKEN_FILE):
+            with open(TOKEN_FILE, 'r') as token_file:
+                creds_json = json.load(token_file)
+                creds = Credentials.from_authorized_user_info(creds_json)
+        else:
+            raise Exception("User not authenticated. Please authenticate at /startAuth")
+
+        drive_service = build('drive', 'v3', credentials=creds)
+        print("Google Drive service initialized.")
+    except Exception as e:
+        print(f"Failed to initialize Google Drive: {e}")
+
+def initialize_selenium():
+    """Initialize Selenium WebDriver."""
+    global driver, selenium_initialized, selenium_error_message
+    options = Options()
+    options.add_argument("--headless")
+    options.add_argument("--disable-gpu")
+    options.add_argument("--window-size=1920x1080")
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
+
+    try:
+        print("Initializing Selenium WebDriver...")
+        driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
+        selenium_initialized = True
+        print("Selenium WebDriver is ready.")
+    except Exception as e:
+        selenium_initialized = False
+        selenium_error_message = str(e)
+        print(f"Failed to initialize Selenium: {selenium_error_message}")
+
+
+def upload_to_google_drive(file_path, folder_id):
+    """Upload a file to Google Drive."""
+    try:
+        file_metadata = {
+            'name': os.path.basename(file_path),
+            'parents': [folder_id]
+        }
+        media = googleapiclient.http.MediaFileUpload(file_path, mimetype='text/html')
+        uploaded_file = drive_service.files().create(
+            body=file_metadata,
+            media_body=media,
+            fields='id, name'
+        ).execute()
+        return uploaded_file.get('id'), uploaded_file.get('name')
+    except Exception as e:
+        print(f"Error uploading file to Google Drive: {e}")
+        return None, None
+
+
+def create_google_drive_folder(folder_name, parent_folder_id=None):
+    """Create a folder in Google Drive."""
+    try:
+        folder_metadata = {
+            'name': folder_name,
+            'mimeType': 'application/vnd.google-apps.folder'
+        }
+        if parent_folder_id:
+            folder_metadata['parents'] = [parent_folder_id]
+
+        folder = drive_service.files().create(
+            body=folder_metadata,
+            fields='id, name'
+        ).execute()
+
+        print(f"Folder '{folder_name}' created with ID: {folder.get('id')}")
+        return folder.get('id')
+    except Exception as e:
+        print(f"Error creating folder in Google Drive: {e}")
+        return None
+
+
+def save_page(url, content, parent_folder_id):
+    """Save HTML content directly to a sub-folder in Google Drive."""
+    parsed_url = urlparse(url)
+    filename = parsed_url.path.strip("/").replace("/", "_") or "index"
+    filename = f"{filename}.html"
+
+    temp_file_path = os.path.join(OUTPUT_DIR, filename)
+    with open(temp_file_path, "wb") as file:
+        file.write(content)
+
+    # Upload file to Google Drive
+    file_id, file_name = upload_to_google_drive(temp_file_path, parent_folder_id)
+    os.remove(temp_file_path)  # Clean up the local temp file
+
+    return file_id, file_name
+
+
+def scrape_pages_with_selenium(task_id, base_url, max_pages, root_folder_id):
+    """Scrape a website and upload pages to a Google Drive sub-folder."""
+    global driver
+    visited_urls = set()
+    urls_to_visit = [base_url]
+    pages_scraped = 0
+    uploaded_files = []
+
+    # Extract base domain to name the subfolder
+    base_domain = urlparse(base_url).netloc.replace("www.", "")
+    website_folder_id = create_google_drive_folder(base_domain, root_folder_id)
+
+    if not website_folder_id:
+        tasks[task_id]["status"] = "error"
+        tasks[task_id]["message"] = "Failed to create folder in Google Drive."
+        return
+
+    try:
+        tasks[task_id]["status"] = "processing"
+        while urls_to_visit:
+            current_url = urls_to_visit.pop(0)
+            if current_url in visited_urls:
+                continue
+
+            print(f"Scraping: {current_url}")
+            driver.get(current_url)
+            time.sleep(2)
+
+            # Save the HTML file to Google Drive
+            html_content = driver.page_source
+            file_id, file_name = save_page(current_url, html_content.encode("utf-8"), website_folder_id)
+            if file_id:
+                uploaded_files.append(f"https://drive.google.com/file/d/{file_id}/view")
+            visited_urls.add(current_url)
+            pages_scraped += 1
+
+            # Stop scraping if max_pages is reached
+            if 0 < max_pages <= pages_scraped:
+                break
+
+            # Find links to follow
+            links = driver.find_elements(By.TAG_NAME, "a")
+            for link in links:
+                href = link.get_attribute("href")
+                if href and href.startswith(base_url) and href not in visited_urls:
+                    urls_to_visit.append(href)
+
+        tasks[task_id]["status"] = "completed"
+        tasks[task_id]["message"] = f"Scraped {pages_scraped} pages."
+        tasks[task_id]["data"] = uploaded_files
+    except Exception as e:
+        tasks[task_id]["status"] = "error"
+        tasks[task_id]["message"] = str(e)
+    finally:
+        print(f"Task {task_id} completed.")
+
+@app.route('/scrape', methods=['POST'])
+def start_scraping():
+    """Start scraping task."""
+    if not selenium_initialized or not drive_service:
+        return jsonify({"status": "error", "message": "Selenium or Google Drive not initialized"}), 500
+
+    data = request.get_json()
+    url = data.get("url")
+    max_pages = int(data.get("max_pages", -1))
+    folder_id = data.get("folder_id")
+
+    if not url or not url.startswith("http") or not folder_id:
+        return jsonify({"status": "error", "message": "Invalid input"}), 400
+
+    task_id = str(uuid.uuid4())
+    tasks[task_id] = {"status": "queued", "message": "Scraping task queued.", "data": None}
+
+    threading.Thread(target=scrape_pages_with_selenium, args=(task_id, url, max_pages, folder_id)).start()
+
+    return jsonify({"status": "success", "message": "Scraping task started.", "data": {"task_id": task_id}})
+
+
+@app.route('/status/<task_id>', methods=['GET'])
+def task_status(task_id):
+    """Check scraping task status."""
+    task = tasks.get(task_id)
+    if not task:
+        return jsonify({"status": "error", "message": "Invalid task ID"}), 404
+
+    return jsonify({"status": task["status"], "message": task["message"], "data": task["data"]})
+
 
 @app.route('/shareFileOnSlack', methods=['POST'])
 def share_file_on_slack():
@@ -377,4 +588,6 @@ def serve_audio(filename):
     return send_from_directory(OUTPUT_FOLDER, filename)
 
 if __name__ == '__main__':
+    initialize_google_drive()
+    initialize_selenium()
     app.run(debug=True)

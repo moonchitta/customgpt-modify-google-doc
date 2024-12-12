@@ -4,7 +4,7 @@ info:
   version: 1.0.0
   description: API to integrate Google Drive functionality, Slack messaging and ElevanLabs to generate Speech based on the Text
 servers:
-  - url: https://f859-2407-d000-1a-4cf4-f9cf-5b9d-8f18-22f0.ngrok-free.app
+  - url: https://1d56-2407-d000-1a-8ad4-ec04-df40-2e53-3a13.ngrok-free.app/
     description: Development server
 paths:
   /privacy:
@@ -365,6 +365,146 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  /scrape:
+    post:
+      operationId: startScraping
+      summary: Start a website scraping task
+      description: Starts a background task to scrape a website and save its pages to a Google Drive folder.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - url
+                - folder_id
+              properties:
+                url:
+                  type: string
+                  format: uri
+                  description: The base URL of the website to start scraping.
+                  example: https://example.com
+                max_pages:
+                  type: integer
+                  description: The maximum number of pages to scrape. Use -1 for all pages.
+                  default: -1
+                  example: 5
+                folder_id:
+                  type: string
+                  description: The Google Drive folder ID where the HTML files will be saved.
+                  example: "1A2B3C4D5E6F7G8H"
+      responses:
+        "200":
+          description: Scraping task successfully started.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: success
+                  message:
+                    type: string
+                    example: Scraping task started.
+                  data:
+                    type: object
+                    properties:
+                      task_id:
+                        type: string
+                        format: uuid
+                        example: 123e4567-e89b-12d3-a456-426614174000
+        "400":
+          description: Invalid input parameters.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: error
+                  message:
+                    type: string
+                    example: Invalid input
+        "500":
+          description: Selenium or Google Drive initialization error.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: error
+                  message:
+                    type: string
+                    example: Selenium or Google Drive not initialized.
+
+  /status/{task_id}:
+    get:
+      operationId: checkScrapingStatus
+      summary: Check the status of a scraping task
+      description: Retrieves the current status and result of a scraping task using its unique task ID.
+      parameters:
+        - name: task_id
+          in: path
+          required: true
+          description: The unique task ID returned when the scraping task was started.
+          schema:
+            type: string
+            format: uuid
+            example: 123e4567-e89b-12d3-a456-426614174000
+      responses:
+        "200":
+          description: Task status retrieved successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: completed
+                  message:
+                    type: string
+                    example: Scraped 5 pages.
+                  data:
+                    oneOf:
+                      - type: "null"
+                      - type: array
+                        description: List of Google Drive file links for the saved HTML pages.
+                        items:
+                          type: string
+                          format: uri
+                          example: https://drive.google.com/file/d/FILE_ID/view
+        "404":
+          description: Task ID not found.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: error
+                  message:
+                    type: string
+                    example: Invalid task ID
+        "500":
+          description: Server error while retrieving task status.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: error
+                  message:
+                    type: string
+                    example: An unexpected error occurred.
 
 components:
   schemas:
