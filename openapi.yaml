@@ -4,7 +4,7 @@ info:
   version: 1.0.0
   description: API to integrate Google Drive functionality, Slack messaging and ElevanLabs to generate Speech based on the Text
 servers:
-  - url: https://1d56-2407-d000-1a-8ad4-ec04-df40-2e53-3a13.ngrok-free.app/
+  - url: https://20c1-2407-d000-1a-8ad4-4cfa-c6f5-2d4-4b3b.ngrok-free.app
     description: Development server
 paths:
   /privacy:

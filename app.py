@@ -5,7 +5,7 @@ import threading
 import json
 
 import requests
-from flask import Flask, request, jsonify, send_from_directory
+from flask import Flask, request, jsonify, send_from_directory, Response, send_file
 from urllib.parse import urlparse
 
 # Google Drive imports
@@ -126,14 +126,14 @@ def list_channels():
 @app.route('/startAuth', methods=['GET'])
 def start_auth():
     flow = InstalledAppFlow.from_client_secrets_file(CLIENT_SECRET_FILE, SCOPES)
-    flow.redirect_uri = 'https://1d56-2407-d000-1a-8ad4-ec04-df40-2e53-3a13.ngrok-free.app//handleAuth'
+    flow.redirect_uri = 'https://20c1-2407-d000-1a-8ad4-4cfa-c6f5-2d4-4b3b.ngrok-free.app/handleAuth'
     auth_url, _ = flow.authorization_url(prompt='consent')
     return jsonify({'auth_url': auth_url}), 200
 
 @app.route('/handleAuth', methods=['GET'])
 def handle_auth():
     flow = InstalledAppFlow.from_client_secrets_file(CLIENT_SECRET_FILE, SCOPES)
-    flow.redirect_uri = 'https://1d56-2407-d000-1a-8ad4-ec04-df40-2e53-3a13.ngrok-free.app//handleAuth'
+    flow.redirect_uri = 'https://20c1-2407-d000-1a-8ad4-4cfa-c6f5-2d4-4b3b.ngrok-free.app/handleAuth'
     authorization_response = request.url
     flow.fetch_token(authorization_response=authorization_response)
 
@@ -585,7 +585,42 @@ def generate_audio():
 # Serve static files from the audio_outputs folder
 @app.route('/audio/<filename>')
 def serve_audio(filename):
-    return send_from_directory(OUTPUT_FOLDER, filename)
+    file_path = os.path.join(OUTPUT_FOLDER, filename)
+
+    if not os.path.isfile(file_path):
+        return "File not found", 404
+
+    # Handle Range requests for streaming
+    range_header = request.headers.get('Range', None)
+    if not range_header:
+        # If no Range header, serve the full file
+        return send_file(file_path)
+
+    # Extract byte range
+    size = os.path.getsize(file_path)
+    byte_range = range_header.split('=')[-1]
+    start, end = byte_range.split('-')
+    start = int(start) if start else 0
+    end = int(end) if end else size - 1
+
+    # Ensure the range is valid
+    if start >= size or end >= size:
+        return "Range Not Satisfiable", 416
+
+    length = end - start + 1
+    headers = {
+        'Content-Range': f'bytes {start}-{end}/{size}',
+        'Accept-Ranges': 'bytes',
+        'Content-Length': str(length),
+        'Content-Type': 'audio/mpeg',
+    }
+
+    # Open file and read the specified range
+    with open(file_path, 'rb') as f:
+        f.seek(start)
+        data = f.read(length)
+
+    return Response(data, 206, headers=headers)
 
 if __name__ == '__main__':
     initialize_google_drive()
