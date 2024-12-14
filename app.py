@@ -43,7 +43,11 @@ client = WebClient(token=SLACK_BOT_TOKEN)
 # File paths and scopes
 CLIENT_SECRET_FILE = 'client_secret.json'  # Path to your client_secret.json file
 TOKEN_FILE = 'token.json'
-SCOPES = [ 'https://www.googleapis.com/auth/drive', 'https://www.googleapis.com/auth/documents', 'https://www.googleapis.com/auth/drive.readonly']
+SCOPES = [
+    'https://www.googleapis.com/auth/drive',
+    'https://www.googleapis.com/auth/documents',
+    'https://www.googleapis.com/auth/drive.readonly',
+    'https://www.googleapis.com/auth/contacts']
 
 # ElevenLabs API configuration
 ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY")
@@ -68,6 +72,7 @@ selenium_error_message = None
 
 # Google Drive Service
 drive_service = None
+
 
 @app.route('/privacy', methods=['GET'])
 def privacy():
@@ -126,14 +131,14 @@ def list_channels():
 @app.route('/startAuth', methods=['GET'])
 def start_auth():
     flow = InstalledAppFlow.from_client_secrets_file(CLIENT_SECRET_FILE, SCOPES)
-    flow.redirect_uri = 'https://20c1-2407-d000-1a-8ad4-4cfa-c6f5-2d4-4b3b.ngrok-free.app/handleAuth'
+    flow.redirect_uri = 'https://48c3-2407-d000-1a-8ad4-ad85-aa2a-1087-948e.ngrok-free.app/handleAuth'
     auth_url, _ = flow.authorization_url(prompt='consent')
     return jsonify({'auth_url': auth_url}), 200
 
 @app.route('/handleAuth', methods=['GET'])
 def handle_auth():
     flow = InstalledAppFlow.from_client_secrets_file(CLIENT_SECRET_FILE, SCOPES)
-    flow.redirect_uri = 'https://20c1-2407-d000-1a-8ad4-4cfa-c6f5-2d4-4b3b.ngrok-free.app/handleAuth'
+    flow.redirect_uri = 'https://48c3-2407-d000-1a-8ad4-ad85-aa2a-1087-948e.ngrok-free.app/handleAuth'
     authorization_response = request.url
     flow.fetch_token(authorization_response=authorization_response)
 
@@ -622,7 +627,263 @@ def serve_audio(filename):
 
     return Response(data, 206, headers=headers)
 
+
+# POST /createContacts - Create a Contact
+@app.route('/createContact', methods=['POST'])
+def create_contact():
+    data = request.get_json()
+
+    # Validate required fields
+    if not data or 'name' not in data or 'email' not in data:
+        return jsonify({"error": "Name and Email are required"}), 400
+
+    # Split the name into first and last name
+    name_parts = data['name'].strip().split()
+    first_name = name_parts[0] if len(name_parts) > 0 else ""
+    last_name = " ".join(name_parts[1:]) if len(name_parts) > 1 else ""
+
+    # Load credentials
+    try:
+        if os.path.exists(TOKEN_FILE):
+            with open(TOKEN_FILE, 'r') as token_file:
+                creds_json = json.load(token_file)
+                creds = Credentials.from_authorized_user_info(creds_json)
+        else:
+            return jsonify({'error': 'User not authenticated. Please authenticate at /startAuth'}), 401
+    except Exception as e:
+        return jsonify({'error': 'Failed to load credentials', 'details': str(e)}), 500
+
+    service = build('people', 'v1', credentials=creds)
+
+    try:
+        # Build the contact payload with extended fields
+        contact_body = {
+            "names": [{"givenName": first_name, "familyName": last_name}],
+            "emailAddresses": [{"value": data['email']}],
+            "phoneNumbers": [
+                {"value": data.get('phone'), "type": "mobile"},
+                {"value": data.get('workPhone'), "type": "work"} if data.get('workPhone') else None,
+                {"value": data.get('officePhone'), "type": "work"} if data.get('officePhone') else None
+            ],
+            "organizations": [
+                {
+                    "name": data.get('company'),
+                    "title": data.get('position'),
+                    "type": "work"
+                }
+            ]
+        }
+
+        # Filter out None values from phoneNumbers and organizations
+        contact_body['phoneNumbers'] = [phone for phone in contact_body['phoneNumbers'] if phone]
+        contact_body['organizations'] = [org for org in contact_body['organizations'] if org.get('name') or org.get('title')]
+
+        # Call Google People API to create the contact
+        created_contact = service.people().createContact(body=contact_body).execute()
+
+        return jsonify({
+            "message": "Contact created successfully",
+            "ContactId": created_contact.get('resourceName'),
+            "name": f"{first_name} {last_name}".strip(),
+            "email": data['email'],
+            "phone": data.get('phone'),
+            "workPhone": data.get('workPhone'),
+            "officePhone": data.get('officePhone'),
+            "company": data.get('company'),
+            "position": data.get('position')
+        }), 201
+
+    except Exception as e:
+        return jsonify({"error": "Failed to create contact", "details": str(e)}), 500
+
+
+# POST /getContacts - Retrieve a Contacts
+@app.route('/getContacts', methods=['POST'])
+def get_contact():
+    data = request.get_json()
+
+    # Extract parameters
+    contact_id = data.get('ContactId')
+    query = data.get('query')  # General query string (name, email, etc.)
+
+    # Validate input
+    if not (contact_id or query):
+        return jsonify({"error": "At least one of ContactId or query must be provided"}), 400
+
+    # Load credentials
+    if os.path.exists(TOKEN_FILE):
+        with open(TOKEN_FILE, 'r') as token_file:
+            creds_json = json.load(token_file)
+            creds = Credentials.from_authorized_user_info(creds_json)
+    else:
+        return jsonify({'error': 'User not authenticated. Please authenticate at /startAuth'}), 401
+
+    service = build('people', 'v1', credentials=creds)
+
+    # Search by ContactId
+    if contact_id:
+        try:
+            person = service.people().get(resourceName=contact_id, personFields="names,emailAddresses,phoneNumbers").execute()
+            return jsonify(person), 200
+        except Exception as e:
+            return jsonify({"error": "Contact not found", "details": str(e)}), 404
+
+    # Search using the query string
+    try:
+        search_results = service.people().searchContacts(
+            query=query,
+            readMask="names,emailAddresses,phoneNumbers",
+            pageSize=50  # Limit results to 50 for efficiency
+        ).execute()
+
+        results = search_results.get('results', [])
+
+        if results:
+            return jsonify(results), 200
+
+        return jsonify({"error": "No contacts match the given criteria"}), 404
+
+    except Exception as e:
+        return jsonify({"error": "Failed to search contacts", "details": str(e)}), 500
+
+# POST /updateContact - Update a Contact
+@app.route('/updateContact', methods=['POST'])
+def update_contact():
+    data = request.get_json()
+    contact_id = data.get('ContactId')
+
+    # Load credentials
+    if os.path.exists(TOKEN_FILE):
+        with open(TOKEN_FILE, 'r') as token_file:
+            creds_json = json.load(token_file)
+            creds = Credentials.from_authorized_user_info(creds_json)
+    else:
+        return jsonify({'error': 'User not authenticated. Please authenticate at /startAuth'}), 401
+
+    service = build('people', 'v1', credentials=creds)
+
+    # Validate ContactId
+    if not contact_id:
+        return jsonify({"error": "ContactId is required"}), 400
+
+    try:
+        # Fetch the existing contact to get its current etag
+        contact = service.people().get(
+            resourceName=contact_id,
+            personFields="names,emailAddresses,phoneNumbers"
+        ).execute()
+
+        etag = contact.get('etag')
+        if not etag:
+            return jsonify({"error": "Failed to retrieve etag for the contact"}), 400
+
+        # Prepare updated fields
+        updated_contact_body = {"etag": etag}
+
+        # Update Name if provided
+        if 'name' in data:
+            name_parts = data['name'].split()
+            first_name = name_parts[0]
+            last_name = " ".join(name_parts[1:]) if len(name_parts) > 1 else ""
+            updated_contact_body["names"] = contact.get('names', [])
+            if updated_contact_body["names"]:
+                updated_contact_body["names"][0]["givenName"] = first_name
+                updated_contact_body["names"][0]["familyName"] = last_name
+            else:
+                updated_contact_body["names"] = [{"givenName": first_name, "familyName": last_name}]
+
+        # Update Email if provided
+        if 'email' in data:
+            updated_contact_body["emailAddresses"] = contact.get('emailAddresses', [])
+            if updated_contact_body["emailAddresses"]:
+                updated_contact_body["emailAddresses"][0]["value"] = data['email']
+            else:
+                updated_contact_body["emailAddresses"] = [{"value": data['email']}]
+
+        # Update Phone if provided
+        if 'phone' in data:
+            updated_contact_body["phoneNumbers"] = contact.get('phoneNumbers', [])
+            if updated_contact_body["phoneNumbers"]:
+                updated_contact_body["phoneNumbers"][0]["value"] = data['phone']
+            else:
+                updated_contact_body["phoneNumbers"] = [{"value": data['phone']}]
+
+        # Update Company and Position
+        if 'company' in data or 'position' in data:
+            updated_contact_body["organizations"] = contact.get('organizations', [])
+            if updated_contact_body["organizations"]:
+                updated_contact_body["organizations"][0]["name"] = data.get('company', updated_contact_body[
+                    "organizations"][0].get("name"))
+                updated_contact_body["organizations"][0]["title"] = data.get('position', updated_contact_body[
+                    "organizations"][0].get("title"))
+            else:
+                updated_contact_body["organizations"] = [
+                    {"name": data.get('company', ""), "title": data.get('position', ""), "type": "work"}
+                ]
+
+        # Update the contact with etag
+        updated_contact = service.people().updateContact(
+            resourceName=contact_id,
+            updatePersonFields="names,emailAddresses,phoneNumbers",
+            body=updated_contact_body
+        ).execute()
+
+        return jsonify({
+            "message": "Contact updated successfully",
+            "ContactId": contact_id,
+            "updatedFields": updated_contact
+        }), 200
+
+    except Exception as e:
+        return jsonify({"error": "Failed to update contact", "details": str(e)}), 500
+
+# POST /deleteContact - Delete a Contact
+@app.route('/deleteContact', methods=['POST'])
+def delete_contact():
+    data = request.get_json()
+    contact_id = data.get('ContactId')
+
+    # Validate ContactId
+    if not contact_id:
+        return jsonify({"error": "ContactId is required"}), 400
+    if not contact_id.startswith("people/"):
+        return jsonify({"error": "Invalid ContactId format. It should start with 'people/'"}), 400
+
+    # Load credentials
+    try:
+        if os.path.exists(TOKEN_FILE):
+            with open(TOKEN_FILE, 'r') as token_file:
+                creds_json = json.load(token_file)
+                creds = Credentials.from_authorized_user_info(creds_json)
+        else:
+            return jsonify({'error': 'User not authenticated. Please authenticate at /startAuth'}), 401
+    except Exception as e:
+        return jsonify({"error": "Failed to load credentials", "details": str(e)}), 500
+
+    # Build the service
+    try:
+        service = build('people', 'v1', credentials=creds)
+    except Exception as e:
+        return jsonify({"error": "Failed to initialize Google People API client", "details": str(e)}), 500
+
+    # Delete the contact
+    try:
+        service.people().deleteContact(resourceName=contact_id).execute()
+        return jsonify({
+            "message": "Contact deleted successfully",
+            "ContactId": contact_id
+        }), 200
+    except Exception as e:
+        # Handle specific errors based on the exception content
+        error_message = str(e)
+        if "notFound" in error_message:
+            return jsonify({"error": "Contact not found", "ContactId": contact_id}), 404
+        elif "permissionDenied" in error_message:
+            return jsonify({"error": "Permission denied. Check API permissions."}), 403
+        else:
+            return jsonify({"error": "Failed to delete contact", "details": error_message}), 500
+
 if __name__ == '__main__':
     initialize_google_drive()
     initialize_selenium()
-    app.run(debug=True)
+    app.run(port=8080, debug=True)

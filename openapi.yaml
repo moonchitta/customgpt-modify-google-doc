@@ -4,7 +4,7 @@ info:
   version: 1.0.0
   description: API to integrate Google Drive functionality, Slack messaging and ElevanLabs to generate Speech based on the Text
 servers:
-  - url: https://20c1-2407-d000-1a-8ad4-4cfa-c6f5-2d4-4b3b.ngrok-free.app
+  - url: https://48c3-2407-d000-1a-8ad4-ad85-aa2a-1087-948e.ngrok-free.app
     description: Development server
 paths:
   /privacy:
@@ -505,7 +505,202 @@ paths:
                   message:
                     type: string
                     example: An unexpected error occurred.
-
+  /getContacts:
+    post:
+      summary: Retrieve a contact
+      operationId: getContacts
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                ContactId:
+                  type: string
+                  description: Unique ContactId to fetch the contact.
+                  example: "people/c1234567890"
+                query:
+                  type: string
+                  description: Query to search for a contact by name or email.
+                  example: "John Doe"
+      responses:
+        "200":
+          description: Contact retrieved successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  resourceName:
+                    type: string
+                    example: "people/c1234567890"
+                  names:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        displayName:
+                          type: string
+                          example: "John Doe"
+                  emailAddresses:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        value:
+                          type: string
+                          example: "johndoe@example.com"
+        "400":
+          description: Invalid request input.
+        "404":
+          description: Contact not found.
+        "500":
+          description: Failed to fetch contact.
+  /createContact:
+    post:
+      summary: Create a new contact
+      operationId: createContact
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+                - email
+              properties:
+                name:
+                  type: string
+                  description: Full name of the contact.
+                  example: "John Doe"
+                email:
+                  type: string
+                  format: email
+                  description: Email address of the contact.
+                  example: "johndoe@example.com"
+                phone:
+                  type: string
+                  description: Mobile phone number.
+                  example: "+1234567890"
+                workPhone:
+                  type: string
+                  description: Work phone number.
+                  example: "+0987654321"
+                company:
+                  type: string
+                  description: Company name of the contact.
+                  example: "Tech Solutions Ltd."
+                position:
+                  type: string
+                  description: Position or job title.
+                  example: "Senior Developer"
+      responses:
+        "201":
+          description: Contact created successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Contact created successfully"
+                  ContactId:
+                    type: string
+                    example: "people/c1234567890"
+        "400":
+          description: Missing required fields.
+        "500":
+          description: Failed to create contact.
+  /updateContact:
+    post:
+      summary: Update an existing contact
+      operationId: updateContact
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - ContactId
+              properties:
+                ContactId:
+                  type: string
+                  description: Unique ContactId of the contact to update.
+                  example: "people/c1234567890"
+                name:
+                  type: string
+                  description: Updated full name of the contact.
+                  example: "Jane Doe"
+                email:
+                  type: string
+                  format: email
+                  description: Updated email address.
+                  example: "janedoe@example.com"
+                phone:
+                  type: string
+                  description: Updated mobile phone number.
+                  example: "+9876543210"
+      responses:
+        "200":
+          description: Contact updated successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Contact updated successfully"
+                  ContactId:
+                    type: string
+                    example: "people/c1234567890"
+        "400":
+          description: ContactId is missing or invalid.
+        "404":
+          description: Contact not found.
+        "500":
+          description: Failed to update contact.
+  /deleteContact:
+    POST:
+      summary: Delete a contact
+      operationId: deleteContact
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - ContactId
+              properties:
+                ContactId:
+                  type: string
+                  description: Unique ContactId of the contact to delete.
+                  example: "people/c1234567890"
+      responses:
+        "200":
+          description: Contact deleted successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Contact deleted successfully"
+                  ContactId:
+                    type: string
+                    example: "people/c1234567890"
+        "400":
+          description: ContactId is missing or invalid.
+        "404":
+          description: Contact not found.
+        "500":
+          description: Failed to delete contact.
 components:
   schemas:
     GenerateAudioRequest:
